@@ -6,6 +6,8 @@ Author:
 
 import collections
 import itertools
+from models.ner.ner_encoder import NEREncoder
+from models.ner.ner_model import NERModel
 import torch
 
 from torch.utils.data import Dataset
@@ -34,10 +36,13 @@ class Vocabulary:
         encoding: A dictionary mapping words (string) to indices (int).
         decoding: A dictionary mapping indices (int) to words (string).
     """
+
     def __init__(self, samples, vocab_size):
         self.words = self._initialize(samples, vocab_size)
-        self.encoding = {word: index for (index, word) in enumerate(self.words)}
-        self.decoding = {index: word for (index, word) in enumerate(self.words)}
+        self.encoding = {word: index for (
+            index, word) in enumerate(self.words)}
+        self.decoding = {index: word for (
+            index, word) in enumerate(self.words)}
 
     def _initialize(self, samples, vocab_size):
         """
@@ -63,7 +68,7 @@ class Vocabulary:
         ][:vocab_size]
         words = [PAD_TOKEN, UNK_TOKEN] + top_words
         return words
-    
+
     def __len__(self):
         return len(self.words)
 
@@ -84,6 +89,7 @@ class Tokenizer:
         pad_token_id: Index of `PAD_TOKEN` (int).
         unk_token_id: Index of `UNK_TOKEN` (int).
     """
+
     def __init__(self, vocabulary):
         self.vocabulary = vocabulary
         self.pad_token_id = self.vocabulary.encoding[PAD_TOKEN]
@@ -137,14 +143,29 @@ class QADataset(Dataset):
         tokenizer: `Tokenizer` object.
         batch_size: Int. The number of example in a mini batch.
     """
+
     def __init__(self, args, path):
         self.args = args
+        self.ner_encoder = NEREncoder()
         self.meta, self.elems = load_dataset(path)
         self.samples = self._create_samples()
+        # self.ner_encodings = self._create_ner_encoding()
         self.tokenizer = None
         self.batch_size = args.batch_size if 'batch_size' in args else 1
         self.pad_token_id = self.tokenizer.pad_token_id \
             if self.tokenizer is not None else 0
+
+    def _create_ner_encoding(self):
+        # (qid, passage, question, answer_start, answer_end)
+        encoding_tuples = []
+        for sample in self.samples:
+            passage_encoding = self.ner_encoder.encode(
+                sample[1], self.args.max_context_length)
+            question_encoding = self.ner_encoder.encode(
+                sample[2], self.args.max_question_length)
+            encoding_tuples.append(
+                (sample[0], passage_encoding, question_encoding))
+        return encoding_tuples
 
     def _create_samples(self):
         """
@@ -177,7 +198,7 @@ class QADataset(Dataset):
                 samples.append(
                     (qid, passage, question, answer_start, answer_end)
                 )
-                
+
         return samples
 
     def _create_data_generator(self, shuffle_examples=False):
@@ -201,6 +222,10 @@ class QADataset(Dataset):
 
         passages = []
         questions = []
+
+        passage_encodings = []
+        question_encodings = []
+
         start_positions = []
         end_positions = []
         for idx in example_idxs:
@@ -214,16 +239,22 @@ class QADataset(Dataset):
             question_ids = torch.tensor(
                 self.tokenizer.convert_tokens_to_ids(question)
             )
+            passage_enc = self.ner_encoder.encode(
+                " ".join(passage), self.args.max_context_length)
+            question_enc = self.ner_encoder.encode(
+                " ".join(question), self.args.max_question_length)
             answer_start_ids = torch.tensor(answer_start)
             answer_end_ids = torch.tensor(answer_end)
 
             # Store each part in an independent list.
             passages.append(passage_ids)
             questions.append(question_ids)
+            passage_encodings.append(passage_enc)
+            question_encodings.append(question_enc)
             start_positions.append(answer_start_ids)
             end_positions.append(answer_end_ids)
 
-        return zip(passages, questions, start_positions, end_positions)
+        return zip(passages, questions, passage_encodings, question_encodings, start_positions, end_positions)
 
     def _create_batches(self, generator, batch_size):
         """
@@ -256,6 +287,8 @@ class QADataset(Dataset):
 
             passages = []
             questions = []
+            passage_encodings = []
+            question_encodings = []
             start_positions = torch.zeros(bsz)
             end_positions = torch.zeros(bsz)
             max_passage_length = 0
@@ -264,8 +297,12 @@ class QADataset(Dataset):
             for ii in range(bsz):
                 passages.append(current_batch[ii][0])
                 questions.append(current_batch[ii][1])
-                start_positions[ii] = current_batch[ii][2]
-                end_positions[ii] = current_batch[ii][3]
+                # Add ner encodings
+                passage_encodings.append(current_batch[ii][2])
+                question_encodings.append(current_batch[ii][3])
+
+                start_positions[ii] = current_batch[ii][4]
+                end_positions[ii] = current_batch[ii][5]
                 max_passage_length = max(
                     max_passage_length, len(current_batch[ii][0])
                 )
@@ -287,6 +324,8 @@ class QADataset(Dataset):
             batch_dict = {
                 'passages': cuda(self.args, padded_passages).long(),
                 'questions': cuda(self.args, padded_questions).long(),
+                'passage_encodings': cuda(self.args, passage_encodings).long(),
+                'question_encodings': cuda(self.args, question_encodings).long(),
                 'start_positions': cuda(self.args, start_positions).long(),
                 'end_positions': cuda(self.args, end_positions).long()
             }
@@ -321,6 +360,6 @@ class QADataset(Dataset):
             tokenizer: If `True`, shuffle examples. Default: `False`
         """
         self.tokenizer = tokenizer
-    
+
     def __len__(self):
         return len(self.samples)
