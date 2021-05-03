@@ -5,10 +5,12 @@ Author:
 """
 
 import collections
+import os
 import itertools
 from models.ner.ner_encoder import NEREncoder
 from models.ner.ner_model import NERModel
 import torch
+import numpy as np
 
 from torch.utils.data import Dataset
 from random import shuffle
@@ -201,7 +203,7 @@ class QADataset(Dataset):
 
         return samples
 
-    def _create_data_generator(self, shuffle_examples=False):
+    def _create_data_generator(self, shuffle_examples=False, load_encodings=True):
         """
         Converts preprocessed text data to Torch tensors and returns a
         generator.
@@ -217,14 +219,19 @@ class QADataset(Dataset):
             raise RuntimeError('error: no tokenizer registered')
 
         example_idxs = list(range(len(self.samples)))
+
         if shuffle_examples:
             shuffle(example_idxs)
 
         passages = []
         questions = []
 
-        passage_encodings = []
-        question_encodings = []
+        if not load_encodings:
+            passage_encodings = []
+            question_encodings = []
+        else:
+            passage_encodings = torch.load("passage_encodings.pt")
+            question_encodings = torch.load("question_encodings.pt")
 
         start_positions = []
         end_positions = []
@@ -239,20 +246,36 @@ class QADataset(Dataset):
             question_ids = torch.tensor(
                 self.tokenizer.convert_tokens_to_ids(question)
             )
-            passage_enc = self.ner_encoder.encode(
-                " ".join(passage), self.args.max_context_length)
-            question_enc = self.ner_encoder.encode(
-                " ".join(question), self.args.max_question_length)
+
+            if not load_encodings:
+                passage_enc = self.ner_encoder.encode(
+                    " ".join(passage), self.args.max_context_length, as_tensor=True)
+                question_enc = self.ner_encoder.encode(
+                    " ".join(question), self.args.max_question_length, as_tensor=True)
+                """
+                passage_enc = torch.tensor(
+                    np.zeros((1, self.args.max_context_length, self.ner_encoder.ner_size)))
+                question_enc = torch.tensor(
+                    np.zeros((1, self.args.max_question_length, self.ner_encoder.ner_size)))
+                """
+
             answer_start_ids = torch.tensor(answer_start)
             answer_end_ids = torch.tensor(answer_end)
 
             # Store each part in an independent list.
             passages.append(passage_ids)
             questions.append(question_ids)
-            passage_encodings.append(passage_enc)
-            question_encodings.append(question_enc)
+            if not load_encodings:
+                passage_encodings.append(passage_enc)
+                question_encodings.append(question_enc)
             start_positions.append(answer_start_ids)
             end_positions.append(answer_end_ids)
+
+        if not load_encodings:
+            torch.save(passage_encodings, "passage_encodings.pt")
+            torch.save(question_encodings, "question_encodings.pt")
+
+        print("DONE WITH DATALOADER FUNC")
 
         return zip(passages, questions, passage_encodings, question_encodings, start_positions, end_positions)
 
@@ -270,6 +293,7 @@ class QADataset(Dataset):
         """
         current_batch = [None] * batch_size
         no_more_data = False
+        batch_idx = 0
         # Loop through all examples.
         while True:
             bsz = batch_size
@@ -320,15 +344,28 @@ class QADataset(Dataset):
                 padded_passages[iii][:len(passage)] = passage
                 padded_questions[iii][:len(question)] = question
 
+            passage_encodings = torch.cat(passage_encodings, dim=0)
+            question_encodings = torch.cat(question_encodings, dim=0)
+
             # Create an input dictionary
             batch_dict = {
                 'passages': cuda(self.args, padded_passages).long(),
                 'questions': cuda(self.args, padded_questions).long(),
-                'passage_encodings': cuda(self.args, passage_encodings).long(),
-                'question_encodings': cuda(self.args, question_encodings).long(),
+                'passage_encodings': cuda(self.args, passage_encodings).float(),
+                'question_encodings': cuda(self.args, question_encodings).float(),
                 'start_positions': cuda(self.args, start_positions).long(),
                 'end_positions': cuda(self.args, end_positions).long()
             }
+
+            """
+            batch_path = 'batch_data'
+            if not os.path.exists(batch_path):
+                os.makedirs(batch_path)
+
+            torch.save(batch_dict, os.path.join(
+                batch_path, str(batch_idx) + "_batch_dict.pt"))
+            batch_idx += 1
+            """
 
             if no_more_data:
                 if bsz > 0:
@@ -336,6 +373,10 @@ class QADataset(Dataset):
                     yield batch_dict
                 break
             yield batch_dict
+
+    def _load_batches(self):
+        # TODO read each batch by file name
+        pass
 
     def get_batch(self, shuffle_examples=False):
         """

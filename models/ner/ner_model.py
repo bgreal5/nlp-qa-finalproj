@@ -188,10 +188,12 @@ class NERModel(nn.Module):
         # TODO probably breaks with batch size > 1
 
         question_embeddings = torch.cat(
-            (question_embeddings, batch["question_encodings"]), 2
+            (question_embeddings, batch["question_encodings"]
+             [:, :question_embeddings.shape[1], :]), 2
         )  # [batch_size, q_len, q_dim + ner_len]
         passage_embeddings = torch.cat(
-            (passage_embeddings, batch["passage_encodings"]), 2
+            (passage_embeddings, batch["passage_encodings"]
+             [:, :passage_embeddings.shape[1], :]), 2
         )  # [batch_size, p_len, p_dim + q_dim + ner_len]
 
         # 3) Passage Encoder

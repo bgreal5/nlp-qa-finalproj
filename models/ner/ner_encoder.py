@@ -8,7 +8,7 @@ from utils import Indexer
 
 class NEREncoder():
     def __init__(self, ner_output_dim=100) -> None:
-        self.nlp = spacy.load("en_core_web_lg")
+        self.nlp = spacy.load("en_core_web_sm")
         self.indexer = self.create_indexer()
         self.ner_size = len(self.indexer)
 
@@ -38,6 +38,7 @@ class NEREncoder():
         indexer.add_and_get_index("QUANTITY")
         indexer.add_and_get_index("ORDINAL")
         indexer.add_and_get_index("CARDINAL")
+        # Manual
         indexer.add_and_get_index("UNKNOWN")
         indexer.add_and_get_index("PADDING")
         return indexer
@@ -46,9 +47,13 @@ class NEREncoder():
         encoding_len = len(encoding)
         one_hot = np.zeros((max_len, self.ner_size))
         for i, idx in enumerate(encoding):
+            if i >= max_len:
+                break
             one_hot[i, idx] = 1
+        """
         for i in range(encoding_len, max_len):
             one_hot[i, -1] = 1
+        """
         return one_hot
 
     def encode(self, text, max_len, as_tensor=False):
@@ -56,9 +61,12 @@ class NEREncoder():
         encoding = self.encode_doc(doc)
         one_hot = self.encoding_to_one_hot(encoding, max_len)
         if as_tensor:
-            return nn.Parameter(torch.tensor(one_hot))
+            return torch.tensor(one_hot).unsqueeze(0)
         return one_hot
 
     def encode_doc(self, doc):
-        ents = doc.ents
-        return [self.indexer.index_of(ent.label_) for ent in ents]
+        base_vector = np.full(
+            len(doc), self.indexer.index_of("UNKNOWN"))
+        for ent in doc.ents:
+            base_vector[ent.start:ent.end] = self.indexer.index_of(ent.label_)
+        return base_vector
