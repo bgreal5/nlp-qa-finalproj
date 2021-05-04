@@ -41,7 +41,8 @@ from utils import cuda, search_span_endpoints, unpack
 _TQDM_BAR_SIZE = 75
 _TQDM_LEAVE = False
 _TQDM_UNIT = " batches"
-_TQDM_OPTIONS = {"ncols": _TQDM_BAR_SIZE, "leave": _TQDM_LEAVE, "unit": _TQDM_UNIT}
+_TQDM_OPTIONS = {"ncols": _TQDM_BAR_SIZE,
+                 "leave": _TQDM_LEAVE, "unit": _TQDM_UNIT}
 
 
 parser = argparse.ArgumentParser()
@@ -123,6 +124,16 @@ parser.add_argument(
     "--do_test", action="store_true", help="flag to enable testing",
 )
 
+parser.add_argument(
+    "--ner", action="store_true", help="use ner vectors in model",
+)
+parser.add_argument(
+    "--pos", action="store_true", help="use pos vectors in model",
+)
+parser.add_argument(
+    "--load_encodings", action="store_true", help="generate new batch of encodings",
+)
+
 # Model arguments.
 parser.add_argument(
     "--vocab_size",
@@ -199,7 +210,7 @@ def _early_stop(args, eval_history):
         Boolean indicating whether training should stop.
     """
     return len(eval_history) > args.early_stop and not any(
-        eval_history[-args.early_stop :]
+        eval_history[-args.early_stop:]
     )
 
 
@@ -309,7 +320,8 @@ def evaluate(args, epoch, model, dataset):
 
     # Set up evaluation dataloader. Creates `args.batch_size`-sized
     # batches from available samples. Does not shuffle.
-    eval_dataloader = tqdm(dataset.get_batch(shuffle_examples=False), **_TQDM_OPTIONS,)
+    eval_dataloader = tqdm(dataset.get_batch(
+        shuffle_examples=False), **_TQDM_OPTIONS,)
 
     with torch.no_grad():
         for batch in eval_dataloader:
@@ -348,7 +360,8 @@ def write_predictions(args, model, dataset):
     model.eval()
 
     # Set up test dataloader.
-    test_dataloader = tqdm(dataset.get_batch(shuffle_examples=False), **_TQDM_OPTIONS,)
+    test_dataloader = tqdm(dataset.get_batch(
+        shuffle_examples=False), **_TQDM_OPTIONS,)
 
     # Output predictions.
     outputs = []
@@ -371,10 +384,11 @@ def write_predictions(args, model, dataset):
                 # (start, end) pair that has the highest joint probability.
                 start_probs = unpack(batch_start_probs[j])
                 end_probs = unpack(batch_end_probs[j])
-                start_index, end_index = search_span_endpoints(start_probs, end_probs)
+                start_index, end_index = search_span_endpoints(
+                    start_probs, end_probs)
 
                 # Grab predicted span.
-                pred_span = " ".join(passage[start_index : (end_index + 1)])
+                pred_span = " ".join(passage[start_index: (end_index + 1)])
 
                 # Add prediction to outputs.
                 outputs.append({"qid": qid, "answer": pred_span})
@@ -422,7 +436,8 @@ def main(args):
 
     # Select model.
     model = _select_model(args)
-    num_pretrained = model.load_pretrained_embeddings(vocabulary, args.embedding_path)
+    num_pretrained = model.load_pretrained_embeddings(
+        vocabulary, args.embedding_path)
     pct_pretrained = round(num_pretrained / len(vocabulary) * 100.0, 2)
     print(f"using pre-trained embeddings from '{args.embedding_path}'")
     print(

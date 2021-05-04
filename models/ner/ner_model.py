@@ -187,14 +187,17 @@ class NERModel(nn.Module):
         # then concat them to the embedding dims, creating new, more descriptive dim
         # TODO probably breaks with batch size > 1
 
-        question_embeddings = torch.cat(
-            (question_embeddings, batch["question_encodings"]
-             [:, :question_embeddings.shape[1], :]), 2
-        )  # [batch_size, q_len, q_dim + ner_len]
-        passage_embeddings = torch.cat(
-            (passage_embeddings, batch["passage_encodings"]
-             [:, :passage_embeddings.shape[1], :]), 2
-        )  # [batch_size, p_len, p_dim + q_dim + ner_len]
+        if batch["question_encodings"]:
+            question_embeddings = torch.cat(
+                (question_embeddings, batch["question_encodings"]
+                 [:, :question_embeddings.shape[1], :]), 2
+            )  # [batch_size, q_len, q_dim + ner_len]
+
+        if batch["passage_encodings"]:
+            passage_embeddings = torch.cat(
+                (passage_embeddings, batch["passage_encodings"]
+                 [:, :passage_embeddings.shape[1], :]), 2
+            )  # [batch_size, p_len, p_dim + q_dim + ner_len]
 
         # 3) Passage Encoder
         passage_hidden = self.sorted_rnn(

@@ -203,7 +203,7 @@ class QADataset(Dataset):
 
         return samples
 
-    def _create_data_generator(self, shuffle_examples=False, load_encodings=True):
+    def _create_data_generator(self, shuffle_examples=False):
         """
         Converts preprocessed text data to Torch tensors and returns a
         generator.
@@ -215,6 +215,7 @@ class QADataset(Dataset):
             A generator that iterates through all examples one by one.
             (Tuple of tensors)
         """
+        load_encodings = self.args.load_encodings
         if self.tokenizer is None:
             raise RuntimeError('error: no tokenizer registered')
 
@@ -223,6 +224,12 @@ class QADataset(Dataset):
         if shuffle_examples:
             shuffle(example_idxs)
 
+        file_id = ""
+        if self.args.pos:
+            file_id += "_pos"
+        if self.args.ner:
+            file_id += "_ner"
+
         passages = []
         questions = []
 
@@ -230,8 +237,8 @@ class QADataset(Dataset):
             passage_encodings = []
             question_encodings = []
         else:
-            passage_encodings = torch.load("passage_encodings.pt")
-            question_encodings = torch.load("question_encodings.pt")
+            passage_encodings = torch.load(f"passage_encodings{file_id}.pt")
+            question_encodings = torch.load(f"question_encodings{file_id}.pt")
 
         start_positions = []
         end_positions = []
@@ -249,15 +256,15 @@ class QADataset(Dataset):
 
             if not load_encodings:
                 passage_enc = self.ner_encoder.encode(
-                    " ".join(passage), self.args.max_context_length, as_tensor=True)
+                    " ".join(passage), self.args.max_context_length, as_tensor=True, ner=self.args.ner, pos=self.args.pos)
                 question_enc = self.ner_encoder.encode(
-                    " ".join(question), self.args.max_question_length, as_tensor=True)
+                    " ".join(question), self.args.max_question_length, as_tensor=True, ner=self.args.ner, pos=self.args.pos)
                 """
                 passage_enc = torch.tensor(
-                    np.zeros((1, self.args.max_context_length, self.ner_encoder.ner_size)))
+                    np.zeros((1, self.args.max_context_length, self.ner_encoder.ner_size + self.ner_encoder.pos_size)))
                 question_enc = torch.tensor(
-                    np.zeros((1, self.args.max_question_length, self.ner_encoder.ner_size)))
-                """
+                    np.zeros((1, self.args.max_question_length, self.ner_encoder.ner_size + self.ner_encoder.pos_size)))
+                    """
 
             answer_start_ids = torch.tensor(answer_start)
             answer_end_ids = torch.tensor(answer_end)
@@ -272,8 +279,8 @@ class QADataset(Dataset):
             end_positions.append(answer_end_ids)
 
         if not load_encodings:
-            torch.save(passage_encodings, "passage_encodings.pt")
-            torch.save(question_encodings, "question_encodings.pt")
+            torch.save(passage_encodings, f"passage_encodings{file_id}.pt")
+            torch.save(question_encodings, f"question_encodings{file_id}.pt")
 
         print("DONE WITH DATALOADER FUNC")
 

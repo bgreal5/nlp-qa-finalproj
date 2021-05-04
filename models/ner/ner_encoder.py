@@ -9,8 +9,11 @@ from utils import Indexer
 class NEREncoder():
     def __init__(self, ner_output_dim=100) -> None:
         self.nlp = spacy.load("en_core_web_sm")
-        self.indexer = self.create_indexer()
-        self.ner_size = len(self.indexer)
+        self.ner_indexer = self.create_ner_indexer()
+        self.ner_size = len(self.ner_indexer)
+
+        self.pos_indexer = self.create_pos_indexer()
+        self.pos_size = len(self.pos_indexer)
 
         # self.linear = nn.Linear(self.ner_size, ner_output_dim)
 
@@ -18,7 +21,7 @@ class NEREncoder():
         max_len = x.shape[1]
         return self.encode(x, max_len)  # [1, max_len_of_input, ner_size]
 
-    def create_indexer(self):
+    def create_ner_indexer(self):
         indexer = Indexer()
         indexer.add_and_get_index("PERSON")
         indexer.add_and_get_index("NORP")
@@ -43,30 +46,74 @@ class NEREncoder():
         indexer.add_and_get_index("PADDING")
         return indexer
 
-    def encoding_to_one_hot(self, encoding, max_len):
-        encoding_len = len(encoding)
-        one_hot = np.zeros((max_len, self.ner_size))
+    def create_pos_indexer(self):
+        indexer = Indexer()
+        indexer.add_and_get_index("ADJ")
+        indexer.add_and_get_index("ADP")
+        indexer.add_and_get_index("ADV")
+        indexer.add_and_get_index("AUX")
+        indexer.add_and_get_index("CONJ")
+        indexer.add_and_get_index("CCONJ")
+        indexer.add_and_get_index("DET")
+        indexer.add_and_get_index("INTJ")
+        indexer.add_and_get_index("NOUN")
+        indexer.add_and_get_index("NUM")
+        indexer.add_and_get_index("PART")
+        indexer.add_and_get_index("PRON")
+        indexer.add_and_get_index("PROPN")
+        indexer.add_and_get_index("PUNCT")
+        indexer.add_and_get_index("SCONJ")
+        indexer.add_and_get_index("SYM")
+        indexer.add_and_get_index("VERB")
+        indexer.add_and_get_index("X")
+        indexer.add_and_get_index("SPACE")
+
+        # Manual
+        indexer.add_and_get_index("UNKNOWN")
+        indexer.add_and_get_index("PADDING")
+        return indexer
+
+    def encoding_to_one_hot(self, encoding, max_len, dim):
+        one_hot = np.zeros((max_len, dim))
         for i, idx in enumerate(encoding):
             if i >= max_len:
                 break
             one_hot[i, idx] = 1
-        """
-        for i in range(encoding_len, max_len):
-            one_hot[i, -1] = 1
-        """
         return one_hot
 
-    def encode(self, text, max_len, as_tensor=False):
+    def encode(self, text, max_len, as_tensor=False, ner=True, pos=True):
         doc = self.nlp(text)
-        encoding = self.encode_doc(doc)
-        one_hot = self.encoding_to_one_hot(encoding, max_len)
-        if as_tensor:
-            return torch.tensor(one_hot).unsqueeze(0)
-        return one_hot
+        vectors = []
+        if ner:
+            encoding = self.encode_doc_ner(doc)
+            one_hot = self.encoding_to_one_hot(
+                encoding, max_len, self.ner_size)
+            vectors.append(torch.tensor(one_hot).unsqueeze(0))
+        if pos:
+            encoding = self.encode_doc_pos(doc)
+            one_hot = self.encoding_to_one_hot(
+                encoding, max_len, self.pos_size)
+            vectors.append(torch.tensor(one_hot).unsqueeze(0))
 
-    def encode_doc(self, doc):
+        if len(vectors) == 2:
+            print(torch.cat(vectors, dim=2).shape)
+            return torch.cat(vectors, dim=2)
+        elif len(vectors) == 1:
+            return vectors[0]
+
+        return None
+
+    def encode_doc_ner(self, doc):
         base_vector = np.full(
-            len(doc), self.indexer.index_of("UNKNOWN"))
+            len(doc), self.ner_indexer.index_of("UNKNOWN"))
         for ent in doc.ents:
-            base_vector[ent.start:ent.end] = self.indexer.index_of(ent.label_)
+            base_vector[ent.start:ent.end] = self.ner_indexer.index_of(
+                ent.label_)
+        return base_vector
+
+    def encode_doc_pos(self, doc):
+        base_vector = np.full(
+            len(doc), self.pos_indexer.index_of("UNKNOWN"))
+        for i, token in enumerate(doc):
+            base_vector[i] = self.pos_indexer.index_of(token.pos)
         return base_vector
